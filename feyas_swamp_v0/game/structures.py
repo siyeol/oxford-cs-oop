@@ -4,6 +4,8 @@ from typing import Self
 
 
 class Graph[N]:
+    __slots__ = ("_adjacency",)
+
     _adjacency: dict[N, set[N]]
 
     def __new__(cls) -> Self:
@@ -48,6 +50,8 @@ class Graph[N]:
 
 
 class UnionFind[T]:
+    __slots__ = ("_parent", "_rank")
+
     _parent: dict[T, T]
     _rank: dict[T, int]
 
@@ -95,6 +99,8 @@ class UnionFind[T]:
 
 
 class Bag[T]:
+    __slots__ = ("_counts",)
+
     _counts: Counter[T]
 
     def __new__(cls) -> Self:
@@ -133,6 +139,8 @@ class Bag[T]:
 
 
 class Stack[T]:
+    __slots__ = ("_items",)
+
     _items: list[T]
 
     def __new__(cls) -> Self:

@@ -32,10 +32,16 @@ type PlayerState = tuple[
 
 
 class Wallet:
+    __slots__ = ("_bag",)
+
     _bag: Bag[Resource]
 
     def __new__(cls) -> Self:
-        self = super().__new__(cls)
+        raise TypeError("Wallets are created by the game, not directly.")
+
+    @classmethod
+    def _new(cls) -> Self:
+        self = object.__new__(cls)
         self._bag = Bag()
         return self
 
@@ -77,10 +83,16 @@ class Wallet:
 
 
 class Bank:
+    __slots__ = ("_neutral_available",)
+
     _neutral_available: int
 
     def __new__(cls) -> Self:
-        self = super().__new__(cls)
+        raise TypeError("The bank is created by the game, not directly.")
+
+    @classmethod
+    def _new(cls) -> Self:
+        self = object.__new__(cls)
         self._neutral_available = NEUTRAL_WORKERS
         return self
 
@@ -131,6 +143,21 @@ class PlayerView(Protocol):
 
 
 class Player:
+    __slots__ = (
+        "_color",
+        "_wallet",
+        "_score",
+        "_workers",
+        "_neutral",
+        "_neutral_taken",
+        "_sailing",
+        "_boats",
+        "_guide",
+        "_next_guide",
+        "_passed",
+        "_temples",
+    )
+
     _color: ClanColor
     _wallet: Wallet
     _score: int
@@ -144,10 +171,14 @@ class Player:
     _passed: bool
     _temples: list[TempleTile]
 
-    def __new__(cls, color: ClanColor, boats: tuple[BoatId, ...]) -> Self:
-        self = super().__new__(cls)
+    def __new__(cls) -> Self:
+        raise TypeError("Players are created by the game, not directly.")
+
+    @classmethod
+    def _new(cls, color: ClanColor, boats: tuple[BoatId, ...]) -> Self:
+        self = object.__new__(cls)
         self._color = color
-        self._wallet = Wallet()
+        self._wallet = Wallet._new()
         self._wallet._add(Resource.GOLD, STARTING_GOLD)
         self._wallet._add(Resource.MANA, STARTING_MANA)
         self._wallet._add(Resource.FISH, STARTING_FISH)

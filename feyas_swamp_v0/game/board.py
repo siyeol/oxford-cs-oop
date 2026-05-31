@@ -1,4 +1,4 @@
-from collections import deque
+from collections import Counter, deque
 from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Protocol, Self
@@ -7,7 +7,7 @@ from .core import BoatId, ClanColor, SpaceId, SpaceKind
 from .structures import Stack, UnionFind
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class TempleTile:
     type_id: int
     victory_points: int
@@ -38,6 +38,22 @@ class SpaceView(Protocol):
     def is_land(self) -> bool: ...
     @property
     def spirit_value(self) -> int: ...
+    @property
+    def temple_reward(self) -> int: ...
+
+
+class IslandView(Protocol):
+    @property
+    def spaces(self) -> frozenset[SpaceId]: ...
+    @property
+    def size(self) -> int: ...
+    @property
+    def spirit_count(self) -> int: ...
+    @property
+    def has_totem(self) -> bool: ...
+    def settlements(self, color: ClanColor) -> int: ...
+    def __contains__(self, space_id: SpaceId) -> bool: ...
+    def __len__(self) -> int: ...
 
 
 class BoardView(Protocol):
@@ -48,15 +64,25 @@ class BoardView(Protocol):
     def space(self, space_id: SpaceId) -> SpaceView: ...
     def spaces(self) -> tuple[SpaceView, ...]: ...
     def neighbours(self, space_id: SpaceId) -> frozenset[SpaceId]: ...
-    def islands(self) -> tuple[frozenset[SpaceId], ...]: ...
+    def islands(self) -> tuple[IslandView, ...]: ...
+    def island_containing(self, space_id: SpaceId) -> IslandView: ...
     def reachable(
         self, start: SpaceId, steps: int, include_temple: bool
     ) -> frozenset[SpaceId]: ...
-    def spirit_count(self, island: frozenset[SpaceId]) -> int: ...
-    def settlements_in(self, island: frozenset[SpaceId], color: ClanColor) -> int: ...
 
 
 class Space:
+    __slots__ = (
+        "_id",
+        "_kind",
+        "_fishing",
+        "_settlement",
+        "_spirit_added",
+        "_fish",
+        "_boat",
+        "_temples",
+    )
+
     _id: SpaceId
     _kind: SpaceKind
     _fishing: bool
@@ -66,8 +92,12 @@ class Space:
     _boat: BoatId | None
     _temples: Stack[TempleTile]
 
-    def __new__(cls, space_id: SpaceId, kind: SpaceKind, fishing: bool) -> Self:
-        self = super().__new__(cls)
+    def __new__(cls) -> Self:
+        raise TypeError("Spaces are created by the swamp, not directly.")
+
+    @classmethod
+    def _new(cls, space_id: SpaceId, kind: SpaceKind, fishing: bool) -> Self:
+        self = object.__new__(cls)
         self._id = space_id
         self._kind = kind
         self._fishing = fishing
@@ -107,10 +137,6 @@ class Space:
         return len(self._fish)
 
     @property
-    def fish_owners(self) -> tuple[ClanColor, ...]:
-        return self._fish.snapshot()
-
-    @property
     def is_land(self) -> bool:
         return (
             self._kind is SpaceKind.SPIRIT
@@ -145,10 +171,8 @@ class Space:
     def _push_fish(self, color: ClanColor) -> None:
         self._fish.push(color)
 
-    def _drain_fish(self) -> tuple[ClanColor, ...]:
-        drained = self._fish.snapshot()
+    def _drain_fish(self) -> None:
         self._fish.replace(())
-        return drained
 
     def _add_temple(self, tile: TempleTile) -> None:
         self._temples.push(tile)
@@ -173,21 +197,78 @@ class Space:
         self._temples.replace(state[4])
 
 
+class Island:
+    __slots__ = ("_ids", "_spirit_count", "_has_totem", "_settlement_counts")
+
+    _ids: frozenset[SpaceId]
+    _spirit_count: int
+    _has_totem: bool
+    _settlement_counts: Counter[ClanColor]
+
+    def __new__(cls) -> Self:
+        raise TypeError("Islands are created by the swamp, not directly.")
+
+    @classmethod
+    def _new(cls, members: tuple[Space, ...], has_totem: bool) -> Self:
+        self = object.__new__(cls)
+        self._ids = frozenset(member.id for member in members)
+        self._spirit_count = sum(member.spirit_value for member in members)
+        self._has_totem = has_totem
+        self._settlement_counts = Counter(
+            member.settlement for member in members if member.settlement is not None
+        )
+        return self
+
+    @property
+    def spaces(self) -> frozenset[SpaceId]:
+        return self._ids
+
+    @property
+    def size(self) -> int:
+        return len(self._ids)
+
+    @property
+    def spirit_count(self) -> int:
+        return self._spirit_count
+
+    @property
+    def has_totem(self) -> bool:
+        return self._has_totem
+
+    def settlements(self, color: ClanColor) -> int:
+        return self._settlement_counts[color]
+
+    def __contains__(self, space_id: SpaceId) -> bool:
+        return space_id in self._ids
+
+    def __iter__(self) -> Iterator[SpaceId]:
+        return iter(self._ids)
+
+    def __len__(self) -> int:
+        return len(self._ids)
+
+
 class Swamp:
+    __slots__ = ("_spaces", "_adjacency", "_totem", "_player_count", "_boat_space")
+
     _spaces: dict[SpaceId, Space]
     _adjacency: dict[SpaceId, frozenset[SpaceId]]
     _totem: SpaceId
     _player_count: int
     _boat_space: dict[BoatId, SpaceId]
 
-    def __new__(
+    def __new__(cls) -> Self:
+        raise TypeError("The swamp is created by the game, not directly.")
+
+    @classmethod
+    def _new(
         cls,
         spaces: dict[SpaceId, Space],
         adjacency: dict[SpaceId, frozenset[SpaceId]],
         totem: SpaceId,
         player_count: int,
     ) -> Self:
-        self = super().__new__(cls)
+        self = object.__new__(cls)
         self._spaces = spaces
         self._adjacency = adjacency
         self._totem = totem
@@ -232,17 +313,20 @@ class Swamp:
                 if neighbour in distance:
                     continue
                 space = self._spaces[neighbour]
-                if space.kind is SpaceKind.TEMPLE:
-                    if include_temple:
+                match space.kind:
+                    case SpaceKind.TEMPLE:
+                        if include_temple:
+                            distance[neighbour] = depth + 1
+                            endpoints.add(neighbour)
+                    case SpaceKind.SPIRIT:
+                        continue
+                    case SpaceKind.WATER:
+                        if space.is_land:
+                            continue
                         distance[neighbour] = depth + 1
-                        endpoints.add(neighbour)
-                    continue
-                if space.is_land:
-                    continue
-                distance[neighbour] = depth + 1
-                queue.append(neighbour)
-                if space.boat is None:
-                    endpoints.add(neighbour)
+                        queue.append(neighbour)
+                        if space.boat is None:
+                            endpoints.add(neighbour)
         return frozenset(endpoints)
 
     def _land_union(self) -> UnionFind[SpaceId]:
@@ -256,35 +340,31 @@ class Swamp:
                     union.union(sid, neighbour)
         return union
 
-    def islands(self) -> tuple[frozenset[SpaceId], ...]:
-        return tuple(self._land_union().components())
+    def islands(self) -> tuple[Island, ...]:
+        result: list[Island] = []
+        for component in self._land_union().components():
+            members = tuple(self._spaces[sid] for sid in component)
+            result.append(Island._new(members, self._totem in component))
+        return tuple(result)
 
-    def island_containing(self, space_id: SpaceId) -> frozenset[SpaceId]:
+    def island_containing(self, space_id: SpaceId) -> Island:
         for island in self.islands():
             if space_id in island:
                 return island
-        return frozenset({space_id})
+        return Island._new((self._spaces[space_id],), self._totem == space_id)
 
-    def spirit_count(self, island: frozenset[SpaceId]) -> int:
-        return sum(self._spaces[sid].spirit_value for sid in island)
-
-    def settlements_in(self, island: frozenset[SpaceId], color: ClanColor) -> int:
-        return sum(1 for sid in island if self._spaces[sid].settlement is color)
-
-    def settlements_of(self, color: ClanColor) -> tuple[SpaceId, ...]:
-        return tuple(
-            sid for sid, space in self._spaces.items() if space.settlement is color
-        )
-
-    def adjacent_islands(self, space_id: SpaceId) -> tuple[frozenset[SpaceId], ...]:
+    def adjacent_islands(self, space_id: SpaceId) -> tuple[Island, ...]:
         islands = self.islands()
-        found: list[frozenset[SpaceId]] = []
+        found: list[Island] = []
+        seen: set[frozenset[SpaceId]] = set()
         for neighbour in self._adjacency[space_id]:
             if not self._spaces[neighbour].is_land:
                 continue
             for island in islands:
-                if neighbour in island and island not in found:
+                if neighbour in island and island.spaces not in seen:
                     found.append(island)
+                    seen.add(island.spaces)
+                    break
         return tuple(found)
 
     def would_join_islands(self, space_id: SpaceId) -> bool:
@@ -303,6 +383,11 @@ class Swamp:
             n
             for n in self._adjacency[space_id]
             if self._spaces[n].settlement is not None
+        )
+
+    def settlements_of(self, color: ClanColor) -> tuple[SpaceId, ...]:
+        return tuple(
+            sid for sid, space in self._spaces.items() if space.settlement is color
         )
 
     def _place_boat(self, boat: BoatId, space_id: SpaceId) -> None:
@@ -360,7 +445,9 @@ def build_swamp(player_count: int) -> Swamp:
                 kind = SpaceKind.TEMPLE
             else:
                 kind = SpaceKind.WATER
-            spaces[sid] = Space(sid, kind, sid in fishing and kind is SpaceKind.WATER)
+            spaces[sid] = Space._new(
+                sid, kind, sid in fishing and kind is SpaceKind.WATER
+            )
     adjacency: dict[SpaceId, frozenset[SpaceId]] = {}
     for row in range(_GRID_HEIGHT):
         for column in range(_GRID_WIDTH):
@@ -372,9 +459,9 @@ def build_swamp(player_count: int) -> Swamp:
                     linked.add(_cell_id(nr, nc))
             adjacency[sid] = frozenset(linked)
     for index, sid in enumerate(sorted(temples)):
-        for depth, reward in enumerate(_TEMPLE_REWARDS):
-            spaces[sid]._add_temple(TempleTile(index, reward - depth))
-    return Swamp(spaces, adjacency, _cell_id(*_TOTEM_CELL), player_count)
+        for reward in reversed(_TEMPLE_REWARDS):
+            spaces[sid]._add_temple(TempleTile(index, reward))
+    return Swamp._new(spaces, adjacency, _cell_id(*_TOTEM_CELL), player_count)
 
 
 def starting_spaces(swamp: Swamp) -> tuple[SpaceId, ...]:

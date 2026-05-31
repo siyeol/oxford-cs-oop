@@ -17,7 +17,8 @@ class Resource(Enum):
 
 
 class Phase(Enum):
-    SETUP = auto()
+    DRAFT = auto()
+    PLACEMENT = auto()
     TURNS = auto()
     OVER = auto()
 
@@ -87,6 +88,8 @@ class IllegalPlacement(IllegalMove):
 
 
 class Observable[T]:
+    __slots__ = ("_subscribers",)
+
     _subscribers: list[Callable[[T], None]]
 
     def __new__(cls) -> Self:

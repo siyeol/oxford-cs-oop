@@ -4,7 +4,7 @@ from typing import Final, Protocol
 from .core import ClanColor, GuideKind, Resource
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class GuideCard:
     kind: GuideKind
     initiative: int
@@ -34,6 +34,8 @@ class AbilityContext(Protocol):
 
 
 class GuideAbility:
+    __slots__ = ()
+
     def on_income(self, context: AbilityContext, color: ClanColor) -> None:
         return None
 
@@ -50,54 +52,74 @@ class GuideAbility:
 
 
 class LeaderAbility(GuideAbility):
+    __slots__ = ()
+
     def on_income(self, context: AbilityContext, color: ClanColor) -> None:
         context.gain(color, Resource.GOLD, 2)
 
 
 class SailorAbility(GuideAbility):
+    __slots__ = ()
+
     def on_income(self, context: AbilityContext, color: ClanColor) -> None:
         context.advance_sailing(color)
 
 
 class FishermanAbility(GuideAbility):
+    __slots__ = ()
+
     @property
     def fishing_bonus(self) -> int:
         return 1
 
 
 class MonkAbility(GuideAbility):
+    __slots__ = ()
+
     def on_income(self, context: AbilityContext, color: ClanColor) -> None:
         context.gain(color, Resource.MANA, 2)
 
 
 class StorytellerAbility(GuideAbility):
+    __slots__ = ()
+
     def on_pass(self, context: AbilityContext, color: ClanColor) -> None:
         context.award(color, 3 * context.temple_count(color))
 
 
 class BuilderAbility(GuideAbility):
+    __slots__ = ()
+
     @property
     def build_discount(self) -> int:
         return 1
 
 
 class WarriorAbility(GuideAbility):
+    __slots__ = ()
+
     def on_income(self, context: AbilityContext, color: ClanColor) -> None:
         context.add_neutral(color, 2)
 
 
 class MerchantAbility(GuideAbility):
+    __slots__ = ()
+
     def on_income(self, context: AbilityContext, color: ClanColor) -> None:
         context.gain(color, Resource.GOLD, 8)
 
 
 class ArtistAbility(GuideAbility):
+    __slots__ = ()
+
     def on_pass(self, context: AbilityContext, color: ClanColor) -> None:
         context.award(color, 3)
         context.celebrate_best(color)
 
 
 class WisemanAbility(GuideAbility):
+    __slots__ = ()
+
     def on_pass(self, context: AbilityContext, color: ClanColor) -> None:
         context.award(color, 3 * context.islands_led(color))
 

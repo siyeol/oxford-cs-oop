@@ -28,15 +28,17 @@ from .core import (
 from .engine import Engine
 from .guides import GuideView
 from .players import Bank, Player, PlayerView
-from .scoring import SCORE_CARDS
+from .scoring import SCORE_CARDS, ScoreCardView
 
 
 class GameBuilder:
+    __slots__ = ()
+
     @staticmethod
     def build(clans: Sequence[ClanColor], seed: int | None) -> Engine:
         rng = Random(seed)
         swamp = build_swamp(len(clans))
-        bank = Bank()
+        bank = Bank._new()
         players: dict[ClanColor, Player] = {}
         next_boat = 0
         for color in clans:
@@ -44,17 +46,19 @@ class GameBuilder:
                 range(next_boat, next_boat + BOATS_PER_CLAN)
             )
             next_boat += BOATS_PER_CLAN
-            players[color] = Player(color, boats)
+            players[color] = Player._new(color, boats)
         guides = list(GuideKind)
         rng.shuffle(guides)
         offer = guides[:GUIDES_IN_OFFER]
         cards = list(SCORE_CARDS)
         rng.shuffle(cards)
         score_cards = tuple(cards[:SCORE_CARDS_IN_PLAY])
-        return Engine(swamp, bank, players, list(clans), offer, score_cards)
+        return Engine._new(swamp, bank, players, list(clans), offer, score_cards)
 
 
 class Game:
+    __slots__ = ("_engine",)
+
     _engine: Engine
 
     def __new__(cls, players: int, *, seed: int | None = None) -> Self:
@@ -99,6 +103,10 @@ class Game:
     @property
     def guide_offer(self) -> tuple[GuideView, ...]:
         return self._engine.offer
+
+    @property
+    def score_cards(self) -> tuple[ScoreCardView, ...]:
+        return self._engine.score_cards()
 
     @property
     def scores(self) -> Mapping[ClanColor, int]:

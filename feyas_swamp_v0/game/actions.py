@@ -36,6 +36,8 @@ class ActionContext(Protocol):
 
 
 class PlacementRule(ABC):
+    __slots__ = ("_successor",)
+
     _successor: PlacementRule | None
 
     def __new__(cls, successor: PlacementRule | None = None) -> Self:
@@ -53,6 +55,8 @@ class PlacementRule(ABC):
 
 
 class FreeWaterRule(PlacementRule):
+    __slots__ = ()
+
     def _check(self, swamp: Swamp, space_id: SpaceId) -> None:
         space = swamp.space(space_id)
         if space.kind is not SpaceKind.WATER or space.is_land or space.boat is not None:
@@ -60,21 +64,27 @@ class FreeWaterRule(PlacementRule):
 
 
 class AdjacentToLandRule(PlacementRule):
+    __slots__ = ()
+
     def _check(self, swamp: Swamp, space_id: SpaceId) -> None:
         if not swamp.is_adjacent_to_land(space_id):
             raise IllegalPlacement("not adjacent to an island")
 
 
 class NoJoinIslandsRule(PlacementRule):
+    __slots__ = ()
+
     def _check(self, swamp: Swamp, space_id: SpaceId) -> None:
         if swamp.would_join_islands(space_id):
             raise IllegalPlacement("would join two islands")
 
 
 class NotTotemIslandRule(PlacementRule):
+    __slots__ = ()
+
     def _check(self, swamp: Swamp, space_id: SpaceId) -> None:
         for island in swamp.adjacent_islands(space_id):
-            if swamp.totem in island:
+            if island.has_totem:
                 raise IllegalPlacement("island already holds the totem")
 
 
@@ -87,6 +97,8 @@ SPIRIT_RULES: Final[PlacementRule] = FreeWaterRule(
 
 
 class Action(ABC):
+    __slots__ = ("_context", "_color")
+
     _context: ActionContext
     _color: ClanColor
 
@@ -123,6 +135,8 @@ class Action(ABC):
 
 
 class BoatAction(Action):
+    __slots__ = ("_moves",)
+
     _moves: dict[BoatId, SpaceId]
 
     def __new__(
@@ -171,6 +185,8 @@ class BoatAction(Action):
 
 
 class FishAction(BoatAction):
+    __slots__ = ()
+
     @property
     def kind(self) -> ActionKind:
         return ActionKind.FISH
@@ -186,6 +202,8 @@ class FishAction(BoatAction):
 
 
 class BuildAction(BoatAction):
+    __slots__ = ()
+
     @property
     def kind(self) -> ActionKind:
         return ActionKind.BUILD
@@ -196,7 +214,7 @@ class BuildAction(BoatAction):
     def _target_cost(self, destination: SpaceId) -> int:
         swamp = self._context.swamp
         islands = swamp.adjacent_islands(destination)
-        spirits = swamp.spirit_count(islands[0]) if islands else 0
+        spirits = islands[0].spirit_count if islands else 0
         value = self._context.settlement_value(self._color)
         discount = self._context.build_discount(self._color)
         return max(0, SPIRIT_BUILD_COST * spirits + value - discount)
@@ -216,6 +234,8 @@ class BuildAction(BoatAction):
 
 
 class SailAction(BoatAction):
+    __slots__ = ()
+
     @property
     def kind(self) -> ActionKind:
         return ActionKind.SAIL
@@ -242,6 +262,8 @@ class SailAction(BoatAction):
 
 
 class TradeAction(BoatAction):
+    __slots__ = ("_placements",)
+
     _placements: dict[BoatId, tuple[SpaceId, ...]]
 
     def __new__(
@@ -294,12 +316,14 @@ class TradeAction(BoatAction):
             space._push_fish(self._color)
             if owner is not None and owner is not self._color:
                 reward = TRADE_REWARD[position]
-                if swamp.totem in swamp.island_containing(target):
+                if swamp.island_containing(target).has_totem:
                     reward += TOTEM_TRADE_BONUS
                 actor._gain(Resource.GOLD, reward)
 
 
 class ImproveSailingAction(Action):
+    __slots__ = ()
+
     @property
     def kind(self) -> ActionKind:
         return ActionKind.IMPROVE_SAILING
@@ -314,6 +338,8 @@ class ImproveSailingAction(Action):
 
 
 class CelebrateAction(Action):
+    __slots__ = ("_anchor",)
+
     _anchor: SpaceId
 
     def __new__(cls, context: ActionContext, color: ClanColor, anchor: SpaceId) -> Self:
@@ -342,7 +368,7 @@ class CelebrateAction(Action):
             and swamp.space(sid).fish_count > 0
         )
         self._context.award(self._color, with_fish)
-        if swamp.totem in island:
+        if island.has_totem:
             self._context.award(self._color, CELEBRATE_TOTEM_BONUS)
         for color in self._context.colors:
             total = sum(
@@ -357,6 +383,8 @@ class CelebrateAction(Action):
 
 
 class AddSpiritAction(Action):
+    __slots__ = ("_target",)
+
     _target: SpaceId
 
     def __new__(cls, context: ActionContext, color: ClanColor, target: SpaceId) -> Self:

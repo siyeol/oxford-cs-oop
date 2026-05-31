@@ -31,14 +31,32 @@ from .core import (
     WrongPhase,
 )
 from .guides import GUIDES, GuideCard, ability_for
-from .phases import GameOverState, PhaseState, SetupPhase, TurnsPhase
+from .phases import DraftPhase, GameOverState, PhaseState, PlacementPhase, TurnsPhase
 from .players import Bank, Player, PlayerState
-from .scoring import ScoreCard
+from .scoring import ScoreCard, ScoreCardView
 
 type GameSnapshot = tuple[SwampState, dict[ClanColor, PlayerState], int, int]
 
 
 class Engine:
+    __slots__ = (
+        "_swamp",
+        "_bank",
+        "_players",
+        "_order",
+        "_offer",
+        "_score_cards",
+        "_state",
+        "_round",
+        "_cursor",
+        "_draft_order",
+        "_draft_index",
+        "_placement_seq",
+        "_placement_index",
+        "_last_memento",
+        "_scores",
+    )
+
     _swamp: Swamp
     _bank: Bank
     _players: dict[ClanColor, Player]
@@ -50,13 +68,16 @@ class Engine:
     _cursor: int
     _draft_order: list[ClanColor]
     _draft_index: int
-    _drafting_done: bool
     _placement_seq: list[ClanColor]
     _placement_index: int
     _last_memento: GameSnapshot | None
     _scores: Observable[ScoreEvent]
 
-    def __new__(
+    def __new__(cls) -> Self:
+        raise TypeError("The engine is created by the game, not directly.")
+
+    @classmethod
+    def _new(
         cls,
         swamp: Swamp,
         bank: Bank,
@@ -65,19 +86,18 @@ class Engine:
         offer: list[GuideKind],
         score_cards: tuple[ScoreCard, ...],
     ) -> Self:
-        self = super().__new__(cls)
+        self = object.__new__(cls)
         self._swamp = swamp
         self._bank = bank
         self._players = players
         self._order = []
         self._offer = offer
         self._score_cards = score_cards
-        self._state = SetupPhase()
+        self._state = DraftPhase()
         self._round = 0
         self._cursor = 0
         self._draft_order = order
         self._draft_index = 0
-        self._drafting_done = False
         self._placement_seq = []
         self._placement_index = 0
         self._last_memento = None
@@ -111,6 +131,9 @@ class Engine:
     @property
     def offer(self) -> tuple[GuideCard, ...]:
         return tuple(GUIDES[kind] for kind in self._offer)
+
+    def score_cards(self) -> tuple[ScoreCardView, ...]:
+        return self._score_cards
 
     def player(self, color: ClanColor) -> Player:
         if color not in self._players:
@@ -152,14 +175,10 @@ class Engine:
         return frozenset(kinds)
 
     def current_actor(self) -> ClanColor | None:
-        if self._state.allows_setup:
-            if not self._drafting_done:
-                if self._draft_index < len(self._draft_order):
-                    return self._draft_order[self._draft_index]
-                return None
-            if self._placement_index < len(self._placement_seq):
-                return self._placement_seq[self._placement_index]
-            return None
+        if self._state.allows_draft:
+            return self._draft_order[self._draft_index]
+        if self._state.allows_placement:
+            return self._placement_seq[self._placement_index]
         if self._state.allows_turn:
             return self._current()
         return None
@@ -184,9 +203,8 @@ class Engine:
     def islands_led(self, color: ClanColor) -> int:
         total = 0
         for island in self._swamp.islands():
-            counts = [self._swamp.settlements_in(island, c) for c in self._order]
-            mine = self._swamp.settlements_in(island, color)
-            if mine > 0 and mine == max(counts):
+            mine = island.settlements(color)
+            if mine > 0 and mine == max(island.settlements(c) for c in self._order):
                 total += 1
         return total
 
@@ -202,7 +220,7 @@ class Engine:
                 and swamp.space(sid).fish_count > 0
             )
             if value > best:
-                best, chosen = value, island
+                best, chosen = value, island.spaces
         if chosen is None:
             return
         self._resolve_celebration(color, chosen)
@@ -256,10 +274,8 @@ class Engine:
         return guide.settlement_value if guide is not None else 0
 
     def draft_guide(self, color: ClanColor, guide: GuideKind) -> None:
-        if not self._state.allows_setup:
-            raise WrongPhase("not in setup")
-        if self._drafting_done:
-            raise IllegalSetup("drafting already complete")
+        if not self._state.allows_draft:
+            raise WrongPhase("not the drafting phase")
         if color != self._draft_order[self._draft_index]:
             raise IllegalSetup("not this clan's turn to draft")
         if guide not in self._offer:
@@ -274,19 +290,15 @@ class Engine:
         self._order = sorted(self._draft_order, key=self._initiative)
         self._placement_seq = list(self._order) * STARTING_SETTLEMENTS
         self._placement_index = 0
-        self._drafting_done = True
+        self._state = PlacementPhase()
 
     def _initiative(self, color: ClanColor) -> int:
         guide = self._players[color].guide
         return guide.initiative if guide is not None else 99
 
     def place_starting_settlement(self, color: ClanColor, space: SpaceId) -> None:
-        if not self._state.allows_setup:
-            raise WrongPhase("not in setup")
-        if not self._drafting_done:
-            raise IllegalSetup("draft before placing")
-        if self._placement_index >= len(self._placement_seq):
-            raise IllegalSetup("placement already complete")
+        if not self._state.allows_placement:
+            raise WrongPhase("not the placement phase")
         if color != self._placement_seq[self._placement_index]:
             raise IllegalSetup("not this clan's turn to place")
         self._validate_start(color, space)
@@ -454,9 +466,7 @@ class Engine:
             player = self._players[color]
             total = 0
             for island in swamp.islands():
-                total += swamp.settlements_in(island, color) * swamp.spirit_count(
-                    island
-                )
+                total += island.settlements(color) * island.spirit_count
             for card in self._score_cards:
                 total += card.score(swamp, color, colors)
             total += sum(

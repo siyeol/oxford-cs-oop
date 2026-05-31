@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Final
+from typing import Final, Protocol
 
 from .board import Swamp
 from .core import (
@@ -14,10 +14,23 @@ from .core import (
 from .structures import UnionFind
 
 
+class ScoreCardView(Protocol):
+    @property
+    def card_id(self) -> int: ...
+    @property
+    def name(self) -> str: ...
+
+
 class ScoreCard(ABC):
+    __slots__ = ()
+
     @property
     @abstractmethod
     def card_id(self) -> int: ...
+
+    @property
+    @abstractmethod
+    def name(self) -> str: ...
 
     @abstractmethod
     def score(
@@ -26,9 +39,15 @@ class ScoreCard(ABC):
 
 
 class LargestGroupCard(ScoreCard):
+    __slots__ = ()
+
     @property
     def card_id(self) -> int:
         return 0
+
+    @property
+    def name(self) -> str:
+        return "squared size of the largest connected group of settlements"
 
     def score(
         self, swamp: Swamp, color: ClanColor, colors: tuple[ClanColor, ...]
@@ -47,9 +66,15 @@ class LargestGroupCard(ScoreCard):
 
 
 class TempleAdjacentCard(ScoreCard):
+    __slots__ = ()
+
     @property
     def card_id(self) -> int:
         return 1
+
+    @property
+    def name(self) -> str:
+        return "five points per settlement next to a temple space"
 
     def score(
         self, swamp: Swamp, color: ClanColor, colors: tuple[ClanColor, ...]
@@ -64,60 +89,81 @@ class TempleAdjacentCard(ScoreCard):
 
 
 class IslandLeadCard(ScoreCard):
+    __slots__ = ()
+
     @property
     def card_id(self) -> int:
         return 2
+
+    @property
+    def name(self) -> str:
+        return "three points per island where you lead in settlements"
 
     def score(
         self, swamp: Swamp, color: ClanColor, colors: tuple[ClanColor, ...]
     ) -> int:
         total = 0
         for island in swamp.islands():
-            counts = [swamp.settlements_in(island, c) for c in colors]
-            mine = swamp.settlements_in(island, color)
-            if mine > 0 and mine == max(counts):
+            mine = island.settlements(color)
+            if mine > 0 and mine == max(island.settlements(c) for c in colors):
                 total += ISLAND_LEAD_VP
         return total
 
 
 class SoleSettlementCard(ScoreCard):
+    __slots__ = ()
+
     @property
     def card_id(self) -> int:
         return 3
+
+    @property
+    def name(self) -> str:
+        return "five points per island where you have exactly one settlement"
 
     def score(
         self, swamp: Swamp, color: ClanColor, colors: tuple[ClanColor, ...]
     ) -> int:
         total = 0
         for island in swamp.islands():
-            if swamp.settlements_in(island, color) == 1:
+            if island.settlements(color) == 1:
                 total += SOLE_SETTLEMENT_VP
         return total
 
 
 class LargestIslandCard(ScoreCard):
+    __slots__ = ()
+
     @property
     def card_id(self) -> int:
         return 4
 
+    @property
+    def name(self) -> str:
+        return "four points per settlement on the largest island"
+
     def score(
         self, swamp: Swamp, color: ClanColor, colors: tuple[ClanColor, ...]
     ) -> int:
         islands = swamp.islands()
         if not islands:
             return 0
-        target = max(len(island) for island in islands)
+        target = max(island.size for island in islands)
         return SIZE_ISLAND_VP * sum(
-            swamp.settlements_in(island, color)
-            for island in islands
-            if len(island) == target
+            island.settlements(color) for island in islands if island.size == target
         )
 
 
 class SmallestIslandCard(ScoreCard):
+    __slots__ = ()
+
     @property
     def card_id(self) -> int:
         return 5
+
+    @property
+    def name(self) -> str:
+        return "four points per settlement on the smallest island"
 
     def score(
         self, swamp: Swamp, color: ClanColor, colors: tuple[ClanColor, ...]
@@ -125,11 +171,9 @@ class SmallestIslandCard(ScoreCard):
         islands = swamp.islands()
         if not islands:
             return 0
-        target = min(len(island) for island in islands)
+        target = min(island.size for island in islands)
         return SIZE_ISLAND_VP * sum(
-            swamp.settlements_in(island, color)
-            for island in islands
-            if len(island) == target
+            island.settlements(color) for island in islands if island.size == target
         )
 
 
