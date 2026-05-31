@@ -1,0 +1,47 @@
+[project]
+name = "marketplace"
+dynamic = ["version"]
+authors = [{ name = "sg495" }]
+description = "A backend for a marketplace."
+readme = "README.md"
+requires-python = ">=3.14"
+license = "LGPL-3.0"
+license-files = ["LICENSE"]
+dependencies = []
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+    "Development Status :: 2 - Pre-Alpha",
+    "Programming Language :: Python :: 3.14",
+    "Natural Language :: English",
+    "Typing :: Typed",
+]
+
+
+[build-system]
+requires = ["hatchling == 1.26.3"]
+build-backend = "hatchling.build"
+
+[tool.black]
+target-version = ["py314"]
+
+[tool.mypy]
+python_version = "3.14"
+strict = true
+mypy_path = "."
+
+[tool.pyright]
+typeCheckingMode = "off"
+reportInvalidTypeForm = false
+
+[tool.hatch.version]
+path = "marketplace/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+only-include = ["marketplace"]
+
+[tool.hatch.build.targets.wheel.sources]
+"src" = ""
+
+[tool.hatch.build.targets.sdist]
+only-include = ["marketplace", "README.md", "LICENSE"]
