@@ -351,6 +351,7 @@ class Engine:
         if color != current:
             raise NotYourTurn("not this clan's turn")
         player = self._players[color]
+        self._check_next_guide(player, next_guide)
         player._pass()
         guide = player.guide
         if guide is not None:
@@ -361,13 +362,19 @@ class Engine:
         if self._current() is None:
             self._state = self._state.advance(self)
 
+    def _check_next_guide(self, player: Player, choice: GuideKind | None) -> None:
+        if choice is None:
+            return
+        guide = player.guide
+        old = guide.kind if guide is not None else None
+        if choice not in self._offer or choice == old:
+            raise IllegalMove("invalid next guide")
+
     def _draw_next_guide(self, player: Player, choice: GuideKind | None) -> None:
         guide = player.guide
         old = guide.kind if guide is not None else None
         picked: GuideKind | None
         if choice is not None:
-            if choice not in self._offer or choice == old:
-                raise IllegalMove("invalid next guide")
             self._offer.remove(choice)
             picked = choice
         else:
