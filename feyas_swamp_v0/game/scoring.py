@@ -14,6 +14,15 @@ from .core import (
 from .structures import UnionFind
 
 
+def islands_led(swamp: Swamp, color: ClanColor, colors: tuple[ClanColor, ...]) -> int:
+    total = 0
+    for island in swamp.islands():
+        mine = island.settlements(color)
+        if mine > 0 and mine == max(island.settlements(c) for c in colors):
+            total += 1
+    return total
+
+
 class ScoreCardView(Protocol):
     @property
     def card_id(self) -> int: ...
@@ -102,12 +111,7 @@ class IslandLeadCard(ScoreCard):
     def score(
         self, swamp: Swamp, color: ClanColor, colors: tuple[ClanColor, ...]
     ) -> int:
-        total = 0
-        for island in swamp.islands():
-            mine = island.settlements(color)
-            if mine > 0 and mine == max(island.settlements(c) for c in colors):
-                total += ISLAND_LEAD_VP
-        return total
+        return ISLAND_LEAD_VP * islands_led(swamp, color, colors)
 
 
 class SoleSettlementCard(ScoreCard):

@@ -2,11 +2,10 @@ from collections.abc import Callable
 from types import MappingProxyType
 from typing import Self
 
-from .actions import Action
+from .actions import Action, celebrate_island
 from .board import Swamp, SwampState
 from .core import (
     ActionKind,
-    CELEBRATE_TOTEM_BONUS,
     ClanColor,
     GOLD_VP_DIVISOR,
     GuideKind,
@@ -20,7 +19,6 @@ from .core import (
     Observable,
     Phase,
     Resource,
-    ROUNDS,
     SAIL_MAP_BONUS,
     SAIL_MAP_BONUS_MIN_PLAYERS,
     ScoreEvent,
@@ -31,9 +29,10 @@ from .core import (
     WrongPhase,
 )
 from .guides import GUIDES, GuideCard, ability_for
-from .phases import DraftPhase, GameOverState, PhaseState, PlacementPhase, TurnsPhase
-from .players import Bank, Player, PlayerState
-from .scoring import ScoreCard, ScoreCardView
+from .phases import DraftPhase, PhaseState
+from .players import Bank, Player, PlayerState, PlayerView
+from .scoring import ScoreCard, ScoreCardView, islands_led
+from .views import BoardProxy, PlayerProxy
 
 type GameSnapshot = tuple[SwampState, dict[ClanColor, PlayerState], int, int]
 
@@ -108,6 +107,9 @@ class Engine:
     def swamp(self) -> Swamp:
         return self._swamp
 
+    def board_view(self) -> BoardProxy:
+        return BoardProxy(self._swamp)
+
     @property
     def colors(self) -> tuple[ClanColor, ...]:
         return tuple(self._draft_order)
@@ -140,8 +142,11 @@ class Engine:
             raise IllegalMove("unknown clan")
         return self._players[color]
 
-    def players_view(self) -> MappingProxyType[ClanColor, Player]:
-        return MappingProxyType(self._players)
+    def players_view(self) -> MappingProxyType[ClanColor, PlayerView]:
+        views: dict[ClanColor, PlayerView] = {
+            color: PlayerProxy(player) for color, player in self._players.items()
+        }
+        return MappingProxyType(views)
 
     def scores(self) -> MappingProxyType[ClanColor, int]:
         return MappingProxyType({c: p.score for c, p in self._players.items()})
@@ -201,12 +206,7 @@ class Engine:
         return self._players[color].temple_count
 
     def islands_led(self, color: ClanColor) -> int:
-        total = 0
-        for island in self._swamp.islands():
-            mine = island.settlements(color)
-            if mine > 0 and mine == max(island.settlements(c) for c in self._order):
-                total += 1
-        return total
+        return islands_led(self._swamp, color, self.colors)
 
     def celebrate_best(self, color: ClanColor) -> None:
         swamp = self._swamp
@@ -223,31 +223,7 @@ class Engine:
                 best, chosen = value, island.spaces
         if chosen is None:
             return
-        self._resolve_celebration(color, chosen)
-
-    def _resolve_celebration(
-        self, color: ClanColor, island: frozenset[SpaceId]
-    ) -> None:
-        swamp = self._swamp
-        with_fish = sum(
-            1
-            for sid in island
-            if swamp.space(sid).settlement is not None
-            and swamp.space(sid).fish_count > 0
-        )
-        self.award(color, with_fish)
-        if swamp.totem in island:
-            self.award(color, CELEBRATE_TOTEM_BONUS)
-        for other in self._order:
-            total = sum(
-                swamp.space(sid).fish_count
-                for sid in island
-                if swamp.space(sid).settlement is other
-            )
-            if total:
-                self.award(other, total)
-        for sid in island:
-            swamp.space(sid)._drain_fish()
+        celebrate_island(self, color, chosen)
 
     def sailing_range(self, color: ClanColor, sailing_action: bool) -> int:
         player = self._players[color]
@@ -284,13 +260,12 @@ class Engine:
         self._offer.remove(guide)
         self._draft_index += 1
         if self._draft_index == len(self._draft_order):
-            self._finish_drafting()
+            self._state = self._state.advance(self)
 
     def _finish_drafting(self) -> None:
         self._order = sorted(self._draft_order, key=self._initiative)
         self._placement_seq = list(self._order) * STARTING_SETTLEMENTS
         self._placement_index = 0
-        self._state = PlacementPhase()
 
     def _initiative(self, color: ClanColor) -> int:
         guide = self._players[color].guide
@@ -308,7 +283,7 @@ class Engine:
         self._swamp._place_boat(boat, space)
         self._placement_index += 1
         if self._placement_index == len(self._placement_seq):
-            self._begin_play()
+            self._state = self._state.advance(self)
 
     def _validate_start(self, color: ClanColor, space: SpaceId) -> None:
         swamp = self._swamp
@@ -327,7 +302,6 @@ class Engine:
         self._round = 1
         self._run_income()
         self._cursor = 0
-        self._state = TurnsPhase()
 
     def _run_income(self) -> None:
         for color in self._order:
@@ -385,7 +359,7 @@ class Engine:
         self._last_memento = None
         self._cursor = (self._order.index(color) + 1) % len(self._order)
         if self._current() is None:
-            self._end_round()
+            self._state = self._state.advance(self)
 
     def _draw_next_guide(self, player: Player, choice: GuideKind | None) -> None:
         guide = player.guide
@@ -441,15 +415,11 @@ class Engine:
         self._last_memento = None
         self._notify_scores()
 
-    def _end_round(self) -> None:
-        if self._round >= ROUNDS:
-            self._run_final_scoring()
-            self._state = GameOverState()
-        else:
-            self._run_maintenance()
-            self._round += 1
-            self._run_income()
-            self._cursor = 0
+    def _advance_round(self) -> None:
+        self._run_maintenance()
+        self._round += 1
+        self._run_income()
+        self._cursor = 0
 
     def _run_maintenance(self) -> None:
         for color in self._order:

@@ -337,6 +337,30 @@ class ImproveSailingAction(Action):
         self._context.award(self._color, actor._advance_sailing())
 
 
+def celebrate_island(
+    context: ActionContext, color: ClanColor, ids: frozenset[SpaceId]
+) -> None:
+    swamp = context.swamp
+    with_fish = sum(
+        1
+        for sid in ids
+        if swamp.space(sid).settlement is not None and swamp.space(sid).fish_count > 0
+    )
+    context.award(color, with_fish)
+    if swamp.totem in ids:
+        context.award(color, CELEBRATE_TOTEM_BONUS)
+    for other in context.colors:
+        total = sum(
+            swamp.space(sid).fish_count
+            for sid in ids
+            if swamp.space(sid).settlement is other
+        )
+        if total:
+            context.award(other, total)
+    for sid in ids:
+        swamp.space(sid)._drain_fish()
+
+
 class CelebrateAction(Action):
     __slots__ = ("_anchor",)
 
@@ -357,29 +381,9 @@ class CelebrateAction(Action):
             raise IllegalMove("celebration anchor is not on an island")
 
     def _apply(self) -> None:
-        swamp = self._context.swamp
-        actor = self._actor()
-        actor._use_worker()
-        island = swamp.island_containing(self._anchor)
-        with_fish = sum(
-            1
-            for sid in island
-            if swamp.space(sid).settlement is not None
-            and swamp.space(sid).fish_count > 0
-        )
-        self._context.award(self._color, with_fish)
-        if island.has_totem:
-            self._context.award(self._color, CELEBRATE_TOTEM_BONUS)
-        for color in self._context.colors:
-            total = sum(
-                swamp.space(sid).fish_count
-                for sid in island
-                if swamp.space(sid).settlement is color
-            )
-            if total:
-                self._context.award(color, total)
-        for sid in island:
-            swamp.space(sid)._drain_fish()
+        self._actor()._use_worker()
+        island = self._context.swamp.island_containing(self._anchor)
+        celebrate_island(self._context, self._color, island.spaces)
 
 
 class AddSpiritAction(Action):

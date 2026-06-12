@@ -1,6 +1,10 @@
 from abc import ABC, abstractmethod
+from typing import TYPE_CHECKING
 
-from .core import Phase
+from .core import Phase, ROUNDS
+
+if TYPE_CHECKING:
+    from .engine import Engine
 
 
 class PhaseState(ABC):
@@ -22,6 +26,9 @@ class PhaseState(ABC):
     def allows_turn(self) -> bool:
         return False
 
+    @abstractmethod
+    def advance(self, engine: Engine) -> PhaseState: ...
+
 
 class DraftPhase(PhaseState):
     __slots__ = ()
@@ -33,6 +40,10 @@ class DraftPhase(PhaseState):
     @property
     def allows_draft(self) -> bool:
         return True
+
+    def advance(self, engine: Engine) -> PhaseState:
+        engine._finish_drafting()
+        return PlacementPhase()
 
 
 class PlacementPhase(PhaseState):
@@ -46,6 +57,10 @@ class PlacementPhase(PhaseState):
     def allows_placement(self) -> bool:
         return True
 
+    def advance(self, engine: Engine) -> PhaseState:
+        engine._begin_play()
+        return TurnsPhase()
+
 
 class TurnsPhase(PhaseState):
     __slots__ = ()
@@ -58,6 +73,13 @@ class TurnsPhase(PhaseState):
     def allows_turn(self) -> bool:
         return True
 
+    def advance(self, engine: Engine) -> PhaseState:
+        if engine._round >= ROUNDS:
+            engine._run_final_scoring()
+            return GameOverState()
+        engine._advance_round()
+        return TurnsPhase()
+
 
 class GameOverState(PhaseState):
     __slots__ = ()
@@ -65,3 +87,6 @@ class GameOverState(PhaseState):
     @property
     def phase(self) -> Phase:
         return Phase.OVER
+
+    def advance(self, engine: Engine) -> PhaseState:
+        return self

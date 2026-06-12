@@ -98,7 +98,7 @@ class Game:
 
     @property
     def board(self) -> BoardView:
-        return self._engine.swamp
+        return self._engine.board_view()
 
     @property
     def guide_offer(self) -> tuple[GuideView, ...]:

@@ -462,12 +462,3 @@ def build_swamp(player_count: int) -> Swamp:
         for reward in reversed(_TEMPLE_REWARDS):
             spaces[sid]._add_temple(TempleTile(index, reward))
     return Swamp._new(spaces, adjacency, _cell_id(*_TOTEM_CELL), player_count)
-
-
-def starting_spaces(swamp: Swamp) -> tuple[SpaceId, ...]:
-    result: list[SpaceId] = []
-    for space in swamp.spaces():
-        if space.kind is SpaceKind.WATER and not space.is_land and space.boat is None:
-            if swamp.is_adjacent_to_land(space.id):
-                result.append(space.id)
-    return tuple(result)
